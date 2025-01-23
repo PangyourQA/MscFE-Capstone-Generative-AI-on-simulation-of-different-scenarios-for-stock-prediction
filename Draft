@@ -1,0 +1,327 @@
+In this project, basically we are doing prediction on the stocks such as Tesla, GE, Nvidia, Apple
+and so on. The prediction model will be the CNN-BiLSTM and Multi-resolution time-series
+transformer (MTST). While due to there are various scenarios in different time-frame, if we
+simply train the models on the data, it cannot really ‘learn’ each of these scenarios, or it mixed
+them together and induce confusion. In order to counter this problem, generative AI like
+Generative Adversarial Networks (GAN) can be implemented to produce synthetic stock price
+pattern, in the meanwhile it also has the discriminator to distinguish whether the data is real or
+synthetic.
+Compare to the paper reviewed on last module, it did not apply the simulation of scenario
+making the prediction may not be generic on any other situation, and thus this is where our
+project comes in. Because even if only the original data is used, and the models are only applied
+to forecast next few month stock prices, the things can still go wrong when the market regimes
+suddenly change due to some unexpected events that induced by geopolitical factors, virus,
+war, disasters like earth shake or food crisis. In this project, we hope to generate some
+predictive models that are more generic to the stock market prediction under various of
+scenarios, and can adapt to the change of the market regimes.
+Our project will start on collecting the data. Besides the historical stock prices, data like trading
+volumes, economic indicators like VIX or CPI can also be input as features to add in more
+information to the models. After that, data cleaning, data pre-processing like generate lag
+features such as returns, moving average and so on can help to increase the complexity of the
+data. After that, the data will be fed into GAN model to produce synthetic data, and also the
+model will be trained on both synthetic data and real data then predict on the validation data to
+check whether the model fit. Finally, after the models are well developed, the prediction on the
+test data will be conducted, and the results will be evaluated by error metrics such as root-mean
+squared error, mean absolute error percentage and so on.
+Pseudo Code for GAN
+Our drafting code for generate the synthetic data is basically 5 steps, excluding the import of
+libraries, as shown as follow:
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+# Step 1: Define the Generator
+class Generator(nn.Module):
+ def __init__(self, latent_dim, output_dim):
+ super(Generator, self).__init__()
+ self.model = nn.Sequential(
+ nn.Linear(latent_dim, 128),
+ nn.ReLU(),
+ nn.Linear(128, 256),
+ nn.ReLU(),
+ nn.Linear(256, 512),
+ nn.ReLU(),
+ nn.Linear(512, output_dim), # Output synthetic data
+ nn.Tanh() # Normalized output (-1, 1)
+ )
+
+ def forward(self, z):
+ return self.model(z)
+# Step 2: Define the Discriminator
+class Discriminator(nn.Module):
+ def __init__(self, input_dim):
+ super(Discriminator, self).__init__()
+ self.model = nn.Sequential(
+ nn.Linear(input_dim, 512),
+ nn.LeakyReLU(0.2),
+ nn.Linear(512, 256),
+ nn.LeakyReLU(0.2),
+ nn.Linear(256, 128),
+ nn.LeakyReLU(0.2),
+ nn.Linear(128, 1), # Single output for binary classification
+ nn.Sigmoid() # Probability (real or fake)
+ )
+
+ def forward(self, x):
+ return self.model(x)
+# Step 3: GAN Training Loop
+def train_gan(real_data, latent_dim, data_dim, epochs, batch_size, learning_rate):
+ # Initialize Generator and Discriminator
+ generator = Generator(latent_dim, data_dim)
+ discriminator = Discriminator(data_dim)
+
+ # Define loss function and optimizers
+ criterion = nn.BCELoss() # Binary Cross-Entropy Loss
+ optimizer_g = optim.Adam(generator.parameters(), lr=learning_rate)
+ optimizer_d = optim.Adam(discriminator.parameters(), lr=learning_rate)
+
+ # Training loop
+ for epoch in range(epochs):
+ for batch in range(0, len(real_data), batch_size):
+ # Get a batch of real data
+ real_batch = torch.tensor(real_data[batch:batch+batch_size], dtype=torch.float32)
+ batch_size_actual = real_batch.size(0)
+
+ # Train Discriminator
+ # Real data labels: 1, Fake data labels: 0
+ real_labels = torch.ones((batch_size_actual, 1))
+ fake_labels = torch.zeros((batch_size_actual, 1))
+
+ # Generate fake data
+ z = torch.randn((batch_size_actual, latent_dim)) # Random noise
+ fake_data = generator(z)
+
+ # Calculate loss for real and fake data
+ real_loss = criterion(discriminator(real_batch), real_labels)
+ fake_loss = criterion(discriminator(fake_data.detach()), fake_labels)
+ d_loss = real_loss + fake_loss
+
+ # Update discriminator
+ optimizer_d.zero_grad()
+ d_loss.backward()
+ optimizer_d.step()
+
+ # Train Generator
+ z = torch.randn((batch_size_actual, latent_dim)) # Random noise
+ fake_data = generator(z)
+
+ # Generator tries to fool the discriminator, so labels are real (1)
+ g_loss = criterion(discriminator(fake_data), real_labels)
+
+ # Update generator
+ optimizer_g.zero_grad()
+ g_loss.backward()
+ optimizer_g.step()
+
+ # Print training progress
+ if epoch % 10 == 0:
+ print(f"Epoch {epoch}/{epochs}, Discriminator Loss: {d_loss.item()}, Generator Loss:
+{g_loss.item()}")
+
+ # Return trained models
+ return generator, discriminator
+# Step 4: Generate Synthetic Data
+def generate_synthetic_data(generator, latent_dim, num_samples):
+ generator.eval() # Set generator to evaluation mode
+ z = torch.randn((num_samples, latent_dim)) # Random noise
+ synthetic_data = generator(z).detach().numpy()
+ return synthetic_data
+# Step 5: Example Usage
+if __name__ == "__main__":
+ # Load and preprocess real stock data
+ real_data = load_real_stock_data() # Replace with your data loading function
+ real_data = preprocess_data(real_data) # Normalize data (e.g., Min-Max scaling)
+
+ # Define GAN parameters
+ latent_dim = 10 # Latent space dimensionality
+ data_dim = real_data.shape[1] # Number of features in real data
+ epochs = 1000 # Number of training epochs
+ batch_size = 32 # Batch size for training
+ learning_rate = 0.0002 # Learning rate for optimizers
+
+ # Train GAN
+ generator, discriminator = train_gan(real_data, latent_dim, data_dim, epochs, batch_size,
+learning_rate)
+
+ # Generate synthetic data
+ num_samples = 1000 # Number of synthetic samples to generate
+ synthetic_data = generate_synthetic_data(generator, latent_dim, num_samples)
+
+ # Analyze or save the synthetic data
+analyze_synthetic_data(synthetic_data) # Replace with a function to visualize or evaluate
+Generally the idea of the code can be:
+Define Generator model:
+ Given an input, then produce fake data to match the target data dimensions
+Define Discriminator model:
+ This one is basically differentiating which data is real and which is fake, with the input of
+both real and fake data.
+Define training loop for GAN:
+ FOR each training step:
+ Generate synthetic data using the Generator, Train the Discriminator, train the
+Generator. When training of generator, the goal is to minimize the classification error, while
+this is reverse for the generator, the generator should be trained for generating the data that can
+give maximum classification error to the discriminator. So, after training is done, the generator
+can be used for produce the synthetic data.
+Predictive Models
+After that, the synthetic data will be used to feed into the models of CNN-BiLSTM and also
+MTST. The drafting code for MTST is shown as following:
+MTST
+import torch
+import torch.nn as nn
+import numpy as np
+from model_definition import Model # Import your MTST model
+from gan_training import generate_synthetic_data # Import the GAN data generation function
+# Step 1: Define configurations for the MTST model
+class Configs:
+ def __init__(self):
+ self.enc_in = 100 # Input feature dimension
+ self.dec_in = 100 # Decoder input dimension
+ self.c_out = 100 # Output feature dimension
+ self.d_model = 64 # Transformer model dimension
+ self.embed = 'timeF' # Embedding type
+ self.freq = 'h' # Frequency for positional embeddings
+ self.factor = 5 # Factor for attention mechanisms
+ self.dropout = 0.1 # Dropout rate
+ self.activation = 'gelu' # Activation function
+ self.n_heads = 8 # Number of attention heads
+ self.e_layers = 2 # Number of encoder layers
+ self.d_layers = 1 # Number of decoder layers
+ self.d_ff = 256 # Feed-forward network dimension
+ self.output_attention = False # Whether to output attention weights
+ self.pred_len = 24 # Prediction length
+ self.embed_type = 0 # Embedding type (0 for full embedding)
+# Step 2: Generate synthetic data using GAN
+def prepare_data_from_gan(latent_dim, num_samples, enc_seq_len, dec_seq_len):
+ # Generate synthetic data
+ synthetic_data = generate_synthetic_data(latent_dim=latent_dim,
+num_samples=num_samples, input_dim=configs.enc_in)
+ # Prepare encoder and decoder input
+ x_enc = synthetic_data[:enc_seq_len]
+ x_dec = synthetic_data[enc_seq_len:enc_seq_len + dec_seq_len]
+ # Generate time-related markers for positional embeddings
+ x_mark_enc = generate_time_features(x_enc) # Replace with time feature generator
+ x_mark_dec = generate_time_features(x_dec) # Replace with time feature generator
+ return x_enc, x_mark_enc, x_dec, x_mark_dec
+# Step 3: Instantiate and configure the MTST model
+configs = Configs()
+mtst_model = Model(configs)
+# Move model to appropriate device (CPU or GPU)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+mtst_model.to(device)
+# Step 4: Prepare data for the MTST model
+latent_dim = 10 # Latent space dimension for GAN
+num_samples = 200 # Number of synthetic samples to generate
+enc_seq_len = 96 # Length of encoder input sequence
+dec_seq_len = 48 # Length of decoder input sequence
+# Generate and prepare data
+x_enc, x_mark_enc, x_dec, x_mark_dec = prepare_data_from_gan(latent_dim, num_samples,
+enc_seq_len, dec_seq_len)
+# Convert data to PyTorch tensors
+x_enc_tensor = torch.tensor(x_enc, dtype=torch.float32).unsqueeze(0).to(device) # [Batch,
+Seq, Features]
+x_mark_enc_tensor = torch.tensor(x_mark_enc, dtype=torch.float32).unsqueeze(0).to(device)
+x_dec_tensor = torch.tensor(x_dec, dtype=torch.float32).unsqueeze(0).to(device)
+x_mark_dec_tensor = torch.tensor(x_mark_dec, dtype=torch.float32).unsqueeze(0).to(device)
+# Step 5: Forward pass through the MTST model
+mtst_model.eval() # Set the model to evaluation mode
+with torch.no_grad():
+ output = mtst_model(
+ x_enc=x_enc_tensor,
+ x_mark_enc=x_mark_enc_tensor,
+ x_dec=x_dec_tensor,
+ x_mark_dec=x_mark_dec_tensor
+ )
+# Step 6: Extract predictions
+predictions = output.cpu().numpy() # Convert predictions to NumPy array
+# Step 7: Analyze predictions
+def analyze_predictions(predictions):
+ print("Shape of Predictions:", predictions.shape)
+ print("First few predictions:", predictions[0, :5])
+analyze_predictions(predictions)
+The idea of this code is basically expressed in following:
+First, define the MTST model like dimensions of input and output, parameter, and sequence
+length for both encoder and decoder. After that, using the GAN model above to generate the
+data we want, split the data into input sequence for encoder and decoder. Then, using the MTST
+to predict the stock prices with the input from the encoder and decoder sequences, the result is
+then analysed using the error metrics.
+CNN-BiLSTM
+The drafting code is shown as following:
+import numpy as np
+from keras.layers import Input, Dense, LSTM, Conv1D, Dropout, Bidirectional, Multiply,
+Flatten
+from keras.models import Model
+from keras import backend as K
+# Hyperparameters
+TIME_STEPS = 10
+INPUT_DIMS = 16
+GAN_LATENT_DIMS = 100
+GAN_DATA_SIZE = 1000
+ATTENTION_COLUMN = 5
+LSTM_UNITS = 32
+# Step 1: GAN-based synthetic data generation
+def generate_synthetic_data(generator, num_samples, latent_dims):
+ """
+ Generate synthetic data using a trained GAN generator.
+ """
+ latent_vectors = np.random.normal(0, 1, size=(num_samples, latent_dims))
+ synthetic_data = generator.predict(latent_vectors)
+ return synthetic_data
+# Step 2: Define the attention model
+def attention_3d_block(inputs):
+ """
+ Adds an attention mechanism on top of LSTM layers.
+ """
+ input_dim = int(inputs.shape[2])
+ a = Dense(input_dim, activation='softmax')(inputs)
+ a_probs = Multiply()([inputs, a])
+ return a_probs
+def attention_model():
+ """
+ Define the main attention-based model.
+ """
+ inputs = Input(shape=(TIME_STEPS, INPUT_DIMS))
+ x = Conv1D(filters=64, kernel_size=1, activation='relu')(inputs)
+ x = Dropout(0.3)(x)
+ lstm_out = Bidirectional(LSTM(LSTM_UNITS, return_sequences=True))(x)
+ lstm_out = Dropout(0.3)(lstm_out)
+ attention_mul = attention_3d_block(lstm_out)
+ attention_mul = Flatten()(attention_mul)
+ output = Dense(1, activation='linear')(attention_mul)
+ model = Model(inputs=[inputs], outputs=output)
+ return model
+# Step 3: Normalize the synthetic data
+def normalize_data(data):
+ """
+ Normalize data to range [0, 1].
+ """
+ min_val = np.min(data, axis=(0, 1), keepdims=True)
+ max_val = np.max(data, axis=(0, 1), keepdims=True)
+ return (data - min_val) / (max_val - min_val), min_val, max_val
+# Step 4: Main workflow
+# Assuming you already have a trained GAN generator model
+# Replace `GAN_GENERATOR` with your trained GAN generator
+GAN_GENERATOR = None # Replace with the actual GAN generator model
+synthetic_data = generate_synthetic_data(GAN_GENERATOR, GAN_DATA_SIZE,
+GAN_LATENT_DIMS)
+# Generate recurrent input data for attention model
+synthetic_data = synthetic_data.reshape(-1, TIME_STEPS, INPUT_DIMS)
+x, y = synthetic_data[:, :-1, :], synthetic_data[:, -1, ATTENTION_COLUMN]
+x, min_val, max_val = normalize_data(x)
+# Create and compile the model
+model = attention_model()
+model.compile(optimizer='adam', loss='mean_squared_error')
+# Train the model
+model.fit(x, y, epochs=10, batch_size=32, verbose=1)
+# Predict and evaluate
+predictions = model.predict(x)
+print("Predictions: ", predictions)
+Attention, in the CNN-BiLSTM code above, attention block is embedded. The explaination of
+the code can be summarized as following:
+First, define GAN-based synthetic data generation, like given what dimensions, to generate the
+synthetic data. Then, define the attention block, where the input is the output of BiLSTM, and
+this block will apply softmax function to compute the attention weights, and the attention
+weights will be multiplied with the BiLSTM output. The overall architecture of the CNNBiLSTM here will be firstly get the input of the data whether it is synthetic, real, or a mixed.
+Then, Conv1D layer will be used to extract the features, and the data will be flow to BiLSTM
+layer, and after that the data will be fed into attention block to multiply with the attention
+weights. Lastly, the prediction on the test data will be carried out and evaluated by using the
+error metrics. 
